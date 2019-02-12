@@ -1,13 +1,14 @@
 package com.amazonaws.samples;
 
+import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 import com.amazonaws.AmazonClientException;
@@ -17,44 +18,19 @@ import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.DeleteObjectRequest;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-/**
- * This sample demonstrates how to make basic requests to Amazon S3 using the
- * AWS SDK for Java.
- * <p>
- * <b>Prerequisites:</b> You must have a valid Amazon Web Services developer
- * account, and be signed up to use Amazon S3. For more information on Amazon
- * S3, see http://aws.amazon.com/s3.
- * <p>
- * Fill in your AWS access credentials in the provided credentials file
- * template, and be sure to move the file to the default location
- * (~/.aws/credentials) where the sample code will load the credentials from.
- * <p>
- * <b>WARNING:</b> To avoid accidental leakage of your credentials, DO NOT keep
- * the credentials file in your source directory.
- *
- * http://aws.amazon.com/security-credentials
- */
 public class S3Sample {
 
 	public static void main(String[] args) throws IOException {
-		String bucketName = "mobomo-github-members";
-		String key = "MyObjectKey";
 
-		AmazonS3 s3 = CreateBucket(bucketName);
-		UploadObject(s3, bucketName, key);
-		S3Object s3obj = GetObject(s3, bucketName, key);
-		Names[] Names = GetMembers();
-	}
-
-	public static AmazonS3 CreateBucket(String bucketName) {
 		AWSCredentials credentials = null;
 		try {
-			credentials = new ProfileCredentialsProvider().getCredentials();
+			credentials = new ProfileCredentialsProvider().getCredentials(); // Credentials are in my pc in a .aws file.
 		} catch (Exception e) {
 			throw new AmazonClientException("Cannot load the credentials from the credential profiles file. "
 					+ "Please make sure that your credentials file is at the correct "
@@ -64,72 +40,86 @@ public class S3Sample {
 		AmazonS3 s3 = AmazonS3ClientBuilder.standard().withCredentials(new AWSStaticCredentialsProvider(credentials))
 				.withRegion("us-east-2").build();
 
-		System.out.println("===========================================");
-		System.out.println("Getting Started with Amazon S3");
-		System.out.println("===========================================\n");
+		// --------------- Getting the old array from S3 --------------
+		ObjectMapper mapper = new ObjectMapper(); // jackson object
+		String first_array_string = readFromS3(ClassToCreateBucket.bucketName, ClassToMakeFirstFile.key, s3); //The old names were stored in S3 if you ran ClassToMakeFirstFile, we take it back
+		Names[] old_names = mapper.readValue(first_array_string, Names[].class);// ReadValue method wants a string with names in it and a class with the names properties
+																				// in order to configure them together to make a java object.
 
-		try {
-			/*
-			 * Create a new S3 bucket - Amazon S3 bucket names are globally unique, so once
-			 * a bucket name has been taken by any user, you can't create another bucket
-			 * with that same name.
-			 *
-			 * You can optionally specify a location for your bucket if you want to keep
-			 * your data closer to your applications or users.
-			 */
-			System.out.println("Creating bucket " + bucketName + "\n");
-			s3.createBucket(bucketName);
-		} catch (AmazonServiceException ase) {
-			System.out.println("Caught an AmazonServiceException, which means your request made it "
-					+ "to Amazon S3, but was rejected with an error response for some reason.");
-			System.out.println("Error Message:    " + ase.getMessage());
-			System.out.println("HTTP Status Code: " + ase.getStatusCode());
-			System.out.println("AWS Error Code:   " + ase.getErrorCode());
-			System.out.println("Error Type:       " + ase.getErrorType());
-			System.out.println("Request ID:       " + ase.getRequestId());
-		} catch (AmazonClientException ace) {
-			System.out.println("Caught an AmazonClientException, which means the client encountered "
-					+ "a serious internal problem while trying to communicate with S3, "
-					+ "such as not being able to access the network.");
-			System.out.println("Error Message: " + ace.getMessage());
-		}
+		// ---------------- Getting New Array (Its a file for testing purposes now)
+		// As my "new" names I used a made up file to test my code. When you use actual mobomo organization. You need to use the GetMembers method to 
+		// get to the actual json files. Hook up the GetMembers method to the actual mobomo organization.
+		// later use the real website (GetMembers Method)), In GetMembers use the actual mobomo organization link when you are calling the JsonGetRequest method.
+		File test = new File("C:\\Users\\vehbi\\Desktop\\CSCPRACTICE\\Mobomo\\TestMembers.json"); // made up "new" names to test.
+		Names[] new_names = mapper.readValue(test, Names[].class); //
+		// --------------- Compares and Stores in Collection List
+		List<String> test1 = compareToSeeNewNames(old_names, new_names); // This List has the new names
+		List<String> test2 = compareToSeeIfDeleted(old_names, new_names); // This list has the old names.
 
-		return s3;
+		// --------Adding the Deleted AND New Members to S3 Bucket ------------
+		File deletedFiles = File.createTempFile("deletedMembers", ".json");
+		File addedFiles = File.createTempFile("addedMembers", ".json"); // 2 temp files created to upload the new and deleted name arrays. We need to create Files to put into Bucket
+		mapper.writeValue(deletedFiles, test2);
+		mapper.writeValue(addedFiles, test1); // The new and deleted arrays are getting put into the files.
+		UploadObject(s3, ClassToCreateBucket.bucketName, "Deleted_Members", deletedFiles); 
+		UploadObject(s3, ClassToCreateBucket.bucketName, "Added_Members", addedFiles); // The added names and deleted names get uploaded to Bucket
+		DeleteObjectFromBucket(s3, ClassToCreateBucket.bucketName, "Member_File"); 
+		UploadObject(s3, ClassToCreateBucket.bucketName, ClassToMakeFirstFile.key, test); // deleting the "old" json file and uploading the "new" json.
+		// the "new" one will be "old" the next run
+
 	}
 
-	public static void UploadObject(AmazonS3 s3, String bucketName, String key, Names[] Names) throws IOException {
+	public static ArrayList compareToSeeIfDeleted(Names[] old_names, Names[] new_names) {
+		ArrayList deletedList = new ArrayList();
+		for (int oldarray = 0; oldarray < old_names.length; oldarray++) {
+			boolean deleted = true;
+
+			for (int newarray = 0; newarray < new_names.length; newarray++) {
+				if (old_names[oldarray].getLogin().equals(new_names[newarray].getLogin())) {
+					deleted = false;
+					break;
+					
+				}
+
+			}
+			if (deleted) {
+
+				deletedList.add(old_names[oldarray].getLogin());
+
+			}
+		}
+
+		return deletedList;
+
+	}
+
+	public static ArrayList compareToSeeNewNames(Names[] old_names, Names[] new_names) {
+
+		ArrayList addedList = new ArrayList();
+		for (int newarray = 0; newarray < new_names.length; newarray++) {
+			boolean is_it_new = true;
+			for (int oldarray = 0; oldarray < old_names.length; oldarray++) {
+
+				if ((new_names[newarray].getLogin().equals(old_names[oldarray].getLogin()))) {
+					is_it_new = false;
+					break;
+				}
+
+			}
+			if (is_it_new) {
+				addedList.add(new_names[newarray].getLogin());
+			}
+
+		}
+
+		return addedList;
+	}
+
+	public static void UploadObject(AmazonS3 s3, String bucketName, String key, File test) throws IOException {
 		try {
 
-			/*
-			 * Upload an object to your bucket - You can easily upload a file to S3, or
-			 * upload directly an InputStream if you know the length of the data in the
-			 * stream. You can also specify your own metadata when uploading to S3, which
-			 * allows you set a variety of options like content-type and content-encoding,
-			 * plus additional metadata specific to your applications.
-			 */
 			System.out.println("Uploading a new object to S3 from a file\n");
-			s3.putObject(new PutObjectRequest(bucketName, key, createSampleFile(Names)));
-
-			/*
-			 * Download an object - When you download an object, you get all of the object's
-			 * metadata and a stream from which to read the contents. It's important to read
-			 * the contents of the stream as quickly as possibly since the data is streamed
-			 * directly from Amazon S3 and your network connection will remain open until
-			 * you read all the data or close the input stream.
-			 *
-			 * GetObjectRequest also supports several other options, including conditional
-			 * downloading of objects based on modification times, ETags, and selectively
-			 * downloading a range of an object.
-			 */
-
-			/*
-			 * List objects in your bucket by prefix - There are many options for listing
-			 * the objects in your bucket. Keep in mind that buckets with many objects might
-			 * truncate their results when listing their objects, so be sure to check if the
-			 * returned object listing is truncated, and use the
-			 * AmazonS3.listNextBatchOfObjects(...) operation to retrieve additional
-			 * results.
-			 */
+			s3.putObject(new PutObjectRequest(bucketName, key, test));
 
 		} catch (AmazonServiceException ase) {
 			System.out.println("Caught an AmazonServiceException, which means your request made it "
@@ -147,53 +137,33 @@ public class S3Sample {
 		}
 	}
 
-	public static S3Object GetObject(AmazonS3 s3, String bucketName, String key) throws IOException {
-		S3Object object = null;
-		try {
-			System.out.println("Downloading an object");
+	public static String readFromS3(String bucketName, String key, AmazonS3 s3) throws IOException {
 
-			object = s3.getObject(new GetObjectRequest(bucketName, key));
-			System.out.println("Content-Type: " + object.getObjectMetadata().getContentType());
+		S3Object s3object = s3.getObject(new GetObjectRequest(
 
-			displayTextInputStream(object.getObjectContent());
+				bucketName, key));
 
-		} catch (AmazonServiceException ase) {
-			System.out.println("Caught an AmazonServiceException, which means your request made it "
-					+ "to Amazon S3, but was rejected with an error response for some reason.");
-			System.out.println("Error Message:    " + ase.getMessage());
-			System.out.println("HTTP Status Code: " + ase.getStatusCode());
-			System.out.println("AWS Error Code:   " + ase.getErrorCode());
-			System.out.println("Error Type:       " + ase.getErrorType());
-			System.out.println("Request ID:       " + ase.getRequestId());
-		} catch (AmazonClientException ace) {
-			System.out.println("Caught an AmazonClientException, which means the client encountered "
-					+ "a serious internal problem while trying to communicate with S3, "
-					+ "such as not being able to access the network.");
-			System.out.println("Error Message: " + ace.getMessage());
+		BufferedReader reader = new BufferedReader(new InputStreamReader(s3object.getObjectContent()));
+
+		String line;
+
+		String text = "";
+		while ((line = reader.readLine()) != null) {
+
+			// can copy the content locally as well
+
+			// using a buffered writer
+			text += line;
+
 		}
-		return object;
+		return text;
 	}
 
-	private static File createSampleFile(Names[] Names) throws IOException {
-		File file = File.createTempFile("LoginNames", ".json");
-		file.deleteOnExit();
+	public static void DeleteObjectFromBucket(AmazonS3 S3, String bucketName, String keyName) {
 
-		Writer writer = new OutputStreamWriter(new FileOutputStream(file));
-		for (int i = 0; i < Names.length; i++) {
-			writer.write(Names[i].getLogin());
-			writer.close();
-		}
-		return file;
+		S3.deleteObject(new DeleteObjectRequest(bucketName, keyName));
+
 	}
-
-	/**
-	 * Displays the contents of the specified input stream as text.
-	 *
-	 * @param input
-	 *            The input stream to display as text.
-	 *
-	 * @throws IOException
-	 */
 
 	public static Names[] GetMembers() {
 

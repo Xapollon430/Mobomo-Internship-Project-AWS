@@ -1,10 +1,15 @@
 package com.amazonaws.samples;
-public class Names {
 
+public class Names {
+	/* The json file we get from the website needs to be turned into an object in JAVA. Jackson mapper we imported does that.
+	 * When you give the mapper object the json file with names and a class with all the member properties, It converts that json
+	 * into a java object using this class.
+	 * 
+	 */
 	private String login;
 
 	public String getLogin() {
-		return login;
+		return this.login;
 	}
 
 	public void setLogin(String login) {
